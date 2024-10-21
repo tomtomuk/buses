@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import csv
 import time, datetime
 import os
+import json
 
 
 load_dotenv()
@@ -16,17 +17,30 @@ client = BODSClient(api_key=API_KEY)
 def query_vehicle_data(client, params):
     siri_response = client.get_siri_vm_data_feed(params=params)
     if type(siri_response) == APIError:
-        raise APIError(siri_response)
-    siri = Siri.from_bytes(siri_response)
-    v_data = siri.service_delivery.vehicle_monitoring_delivery.vehicle_activities
+        print(f'APIError - {siri_response}')
+        v_data = []
+    else:
+        siri = Siri.from_bytes(siri_response)
+        v_data = siri.service_delivery.vehicle_monitoring_delivery.vehicle_activities
     
     return v_data
 
 
-def create_csv_dict(v_data):
+def create_csv_row(v_data):
     timestamp = v_data.recorded_at_time
     j_data = v_data.monitored_vehicle_journey.model_dump()
     j_data['recorded_at_time'] = timestamp
+
+    # extract the vehicle journey ref
+    j_data['dated_vehicle_journey_ref'] = j_data['framed_vehicle_journey_ref']['dated_vehicle_journey_ref']
+    del j_data['framed_vehicle_journey_ref']
+
+    # convert datetimes
+    for key, value in j_data.items():
+        if isinstance(value, datetime.date):
+            j_data[key] = str(value)
+
+    json.dumps(j_data)
 
     return j_data
 
@@ -51,13 +65,13 @@ def create_buses_file(client, params):
 
     # Open the CSV file for writing and write the header
     with open(csv_file, "w", newline="") as csvfile:
-        j_data = create_csv_dict(v_data[0])
+        j_data = create_csv_row(v_data[0])
         writer = csv.DictWriter(csvfile, fieldnames=j_data.keys())
         writer.writeheader()
 
         # write first set of data
         for v in v_data:
-            j_row = create_csv_dict(v)
+            j_row = create_csv_row(v)
             print(f'Writing {j_row}')
             writer.writerow(j_row)
 
@@ -74,7 +88,7 @@ def create_buses_file(client, params):
             if len(v_data) > 0:
                 print(f'{now_str} - Found {len(v_data)} buses!')
                 for v in v_data:
-                    j_row = create_csv_dict(v)
+                    j_row = create_csv_row(v)
                     print(f'Writing: {j_row}')
                     writer.writerow(j_row)
             else:
