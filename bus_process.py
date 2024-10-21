@@ -56,4 +56,4 @@ tosave = bus_data[[
   "direction_ref", "line_ref", "latitude", "longitude", "recorded_at_time", "speed"
   ]]
 
-tosave.to_csv('speeds.csv')
+tosave.to_csv('speeds.csv', index=False)

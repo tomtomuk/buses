@@ -97,10 +97,10 @@ def create_buses_file(client, params):
 
 bounding_box = BoundingBox(
     **{
-        "min_latitude": 50.72,
-        "max_latitude": 50.772,
-        "min_longitude": -3.51,
-        "max_longitude": -3.499,
+        "min_latitude": 50.7191,
+        "max_latitude": 50.7236,
+        "min_longitude": -3.512,
+        "max_longitude": -3.491,
     }
 )
 
