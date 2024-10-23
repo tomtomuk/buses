@@ -10,6 +10,7 @@ BUTTS_ROAD_IN = {"latitude": 50.721171, "longitude": -3.501255}
 POST_OFFICE_IN = {"latitude": 50.721455, "longitude": -3.506379}
 
 # Fore street = -3.508142 to -3.501045 ~(City Vets to Butts Road)
+# Bus lane = -3.504520 to -3.501827
 
 BUSFILE = 'csv_data/buses_2024-10-22.csv'
 
