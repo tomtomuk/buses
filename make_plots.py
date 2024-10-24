@@ -2,71 +2,115 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
-import pytz
 import matplotlib.dates as mdates
+import pytz
 import glob
+import re
 
-LOCAL_TIMEZONE = 'Europe/London'
-
-BUS_LANE = [-3.504520, -3.501827]
-LAT_RANGE = [50.720832, 50.721658]
+LOCAL_TIMEZONE = 'Europe/London'  # Replace with your local timezone
 
 csv_files = glob.glob('csv_data/speeds/speeds_*.csv')
+
+print(f"Found {len(csv_files)} CSV files")
+
+def extract_date_from_filename(filename):
+    # Updated regex to match YYYY-MM-DD format
+    match = re.search(r'speeds_(\d{4}-\d{2}-\d{2})\.csv', filename)
+    if match:
+        date_str = match.group(1)
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    return None
 
 df_list = []
 for file in csv_files:
     temp_df = pd.read_csv(file)
-    temp_df['source_file'] = file  # Add a column to track the source file
+    file_date = extract_date_from_filename(file)
+    if file_date:
+        temp_df['source_date'] = file_date
+    else:
+        temp_df['source_date'] = pd.NaT
     df_list.append(temp_df)
-df = pd.concat(df_list, ignore_index=True)
+    print(f"Read {file}: {len(temp_df)} rows")
 
-# Convert 'recorded_at_time' to datetime and reset the date to today
+df = pd.concat(df_list, ignore_index=True)
+print(f"Combined DataFrame: {len(df)} rows")
+
 df['recorded_at_time'] = pd.to_datetime(df['recorded_at_time'])
+
 local_tz = pytz.timezone(LOCAL_TIMEZONE)
 df['recorded_at_time'] = df['recorded_at_time'].dt.tz_convert(local_tz)
 
 today = pd.Timestamp.today().normalize()
 df['recorded_at_time'] = df['recorded_at_time'].apply(lambda x: today + pd.Timedelta(hours=x.hour, minutes=x.minute, seconds=x.second))
 
-# Filter the DataFrame
-df = df[(df['longitude'] >= BUS_LANE[0]) & (df['longitude'] <= BUS_LANE[1]) &
-        (df['latitude'] >= LAT_RANGE[0]) & (df['latitude'] <= LAT_RANGE[1])]
+grouped = df.groupby(['line_ref', 'dated_vehicle_journey_ref', 'source_date']).first().reset_index()
+print(f"Grouped data: {len(grouped)} rows")
 
-# Group by line_ref and dated_vehicle_journey_ref, and get the first entry for each group
-grouped = df.groupby(['line_ref', 'dated_vehicle_journey_ref', 'source_file']).first().reset_index()
+# Diagnostic: Print rows with average speed of zero
+zero_speed_rows = df[df['avg_speed'] == 0]
+if not zero_speed_rows.empty:
+    print("\nRows with average speed of zero:")
+    print(zero_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'avg_speed', 'longitude', 'latitude']])
+    print(f"Total rows with zero speed: {len(zero_speed_rows)}")
+else:
+    print("\nNo rows found with average speed of zero.")
 
-# Create a scatter plot
-fig, ax = plt.subplots(figsize=(12, 8))
-sns.scatterplot(data=grouped, x='recorded_at_time', y='avg_speed', hue='line_ref', ax=ax)
+# Additional check for very low speeds
+low_speed_rows = df[df['avg_speed'] < 1]  # Adjust the threshold as needed
+if not low_speed_rows.empty:
+    print("\nRows with very low average speed (< 1 km/h):")
+    print(low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'avg_speed', 'longitude', 'latitude']])
+    print(f"Total rows with very low speed: {len(low_speed_rows)}")
+else:
+    print("\nNo rows found with very low average speed.")
 
-# Customize the plot
-plt.title('Average Speed by Line and Journey (Time of Day)')
-plt.xlabel('Time of Day')
-plt.ylabel('Average Speed (km/h)')
 
-# Format x-axis to show time in HH:MM format, with one label per hour
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-ax.xaxis.set_major_locator(mdates.HourLocator())
+def create_scatter_plot(data, x, y, hue, style, title, filename):
+    if len(data) == 0:
+        print(f"No data to plot for {filename}")
+        return
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    sns.scatterplot(data=data, x=x, y=y, hue=hue, style=style, ax=ax)
+    
+    plt.title(title)
+    plt.xlabel('Time of Day')
+    plt.ylabel('Speed (km/h)')
+    
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    ax.xaxis.set_major_locator(mdates.HourLocator())
+    
+    for time_str in ['08:00', '09:30', '16:00', '18:30']:
+        time_obj = datetime.strptime(time_str, '%H:%M').time()
+        ax.axvline(x=today + pd.Timedelta(hours=time_obj.hour, minutes=time_obj.minute), 
+                   linestyle='--', color='gray', alpha=0.5)
+    
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
 
-# Set x-axis limits to cover a full day
-ax.set_xlim(today, today + pd.Timedelta(days=1))
+create_scatter_plot(
+    data=grouped,
+    x='recorded_at_time',
+    y='avg_speed',
+    hue='line_ref',
+    style='source_date',
+    title='Average Speed by Line and Journey (Time of Day) - Inbound',
+    filename='average_speed_scatter_plot.png'
+)
 
-# Draw vertical lines at specified times
-for time_str in ['08:00', '09:30', '16:00', '18:30']:
-    time_obj = datetime.strptime(time_str, '%H:%M').time()
-    ax.axvline(x=today + pd.Timedelta(hours=time_obj.hour, minutes=time_obj.minute), 
-               linestyle='--', color='gray', alpha=0.5)
+df_with_speed = df[df['speed'].notna()]
+print(f"Data points with speed: {len(df_with_speed)}")
 
-# Rotate x-axis labels for better readability
-plt.xticks(rotation=45)
+create_scatter_plot(
+    data=df_with_speed,
+    x='recorded_at_time',
+    y='speed',
+    hue='line_ref',
+    style='source_date',
+    title='All Individual Speeds by Line and Journey (Time of Day) - Inbound',
+    filename='all_speeds_scatter_plot.png'
+)
 
-# Adjust layout to prevent cutting off labels
-plt.tight_layout()
-
-# Save the plot
-plt.savefig('average_speed_scatter_plot.png')
-
-# Display the plot (optional, remove if running in a non-interactive environment)
-plt.show()
-
-print("Scatter plot has been saved as 'average_speed_scatter_plot.png'")
+print("Script completed. Check the console output for data statistics.")
