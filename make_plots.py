@@ -65,6 +65,15 @@ else:
     print("\nNo rows found with very low average speed.")
 
 
+def calculate_average_speed_and_slow_count(data, start_time, end_time, slow_threshold=8):
+    mask = (data['recorded_at_time'].dt.time >= start_time) & (data['recorded_at_time'].dt.time < end_time)
+    subset = data.loc[mask, 'avg_speed']
+    avg_speed = subset.mean()
+    slow_count = (subset < slow_threshold).sum()
+    total_count = len(subset)
+    slow_pct = (slow_count / total_count * 100) if total_count > 0 else 0
+    return avg_speed, slow_pct
+
 def create_scatter_plot(data, x, y, hue, style, title, filename):
     if len(data) == 0:
         print(f"No data to plot for {filename}")
@@ -80,16 +89,32 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     ax.xaxis.set_major_locator(mdates.HourLocator())
     
-    for time_str in ['08:00', '09:30', '16:00', '18:30']:
+    # Calculate average speeds and slow counts for each time range
+    morning_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('08:00', '%H:%M').time(), datetime.strptime('09:30', '%H:%M').time())
+    midday_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('09:30', '%H:%M').time(), datetime.strptime('16:00', '%H:%M').time())
+    evening_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('16:00', '%H:%M').time(), datetime.strptime('18:30', '%H:%M').time())
+    
+    # Add vertical lines and text for each time range
+    for time_str, stats, ha in [('08:00', morning_stats, 'right'), 
+                                ('09:30', morning_stats, 'left'),
+                                ('16:00', evening_stats, 'right'),
+                                ('18:30', evening_stats, 'left')]:
         time_obj = datetime.strptime(time_str, '%H:%M').time()
-        ax.axvline(x=today + pd.Timedelta(hours=time_obj.hour, minutes=time_obj.minute), 
-                   linestyle='--', color='gray', alpha=0.5)
+        x_pos = today + pd.Timedelta(hours=time_obj.hour, minutes=time_obj.minute)
+        ax.axvline(x=x_pos, linestyle='--', color='gray', alpha=0.5)
+        if ha == 'left':
+            ax.text(x_pos, ax.get_ylim()[1], f' Avg: {stats[0]:.2f} km/h\n Slow: {stats[1]:.2f}%', ha=ha, va='top', rotation=90)
+    
+    # Add text for midday average
+    midday_x = today + pd.Timedelta(hours=12, minutes=45)  # 12:45, middle of 09:30-16:00
+    ax.text(midday_x, ax.get_ylim()[1], f'Avg: {midday_stats[0]:.2f} km/h\nSlow: {midday_stats[1]:.2f}%', ha='center', va='top')
     
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig(filename)
     plt.close()
 
+    
 create_scatter_plot(
     data=grouped,
     x='recorded_at_time',
