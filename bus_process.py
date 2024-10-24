@@ -3,7 +3,10 @@ from datetime import datetime
 from geopy.distance import great_circle
 import json
 
-DATE = '2024-10-23'
+DATE = '2024-10-22'
+
+BUS_LANE = [-3.504746, -3.501827]
+LAT_RANGE = [50.720832, 50.721658]
 
 # Westbound stops
 HEAVITREE_BRIDGE_IN = {"latitude": 50.719708, "longitude": -3.493304}
@@ -14,7 +17,7 @@ POST_OFFICE_IN = {"latitude": 50.721455, "longitude": -3.506379}
 # Fore street = -3.508142 to -3.501045 ~(City Vets to Butts Road)
 # Bus lane = -3.504520 to -3.501827
 
-BUSFILE = f'csv_data/buses_{DATE}.csv'
+BUSFILE = f'csv_data/bus_data/buses_{DATE}.csv'
 
 
 # Extract latitude and longitude from JSON string
@@ -50,7 +53,7 @@ def calculate_distance_and_time(group):
             if time_diff.total_seconds() > 0:
                 group.loc[index, "speed"] = distance / time_diff.total_seconds() * 3600  # Convert to km/h
             else:
-                group.loc[index, "speed"] = 0
+                group.loc[index, "speed"] = None
         else:
             # For the first row, set distance, time_diff, and speed to None
             group.loc[index, "distance"] = None
@@ -65,7 +68,7 @@ def calculate_distance_and_time(group):
     if total_time.total_seconds() > 0:
         group["avg_speed"] = total_distance / total_time.total_seconds() * 3600  # Convert to km/h
     else:
-        group["avg_speed"] = 0
+        group["avg_speed"] = None
 
     return group
 
@@ -85,13 +88,21 @@ bus_data = pd.read_csv(BUSFILE)
 # Define relevant columns
 timestamp_col = "recorded_at_time"
 location_col = "vehicle_location"
-journey_ref_col = ["dated_vehicle_journey_ref", "vehicle_ref"]
+journey_ref_col = ["dated_vehicle_journey_ref", "vehicle_ref", "direction_ref"]
 
 bus_data[timestamp_col] = bus_data[timestamp_col].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S%z'))
 
 locations_list = bus_data[location_col].apply(get_lat_lon).tolist()
 bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 
+# filter to buses only inbound fore street bus lane
+#
+bus_data = bus_data[
+    (bus_data['longitude'].between(BUS_LANE[0], BUS_LANE[1], inclusive='both')) &
+    (bus_data['latitude'].between(LAT_RANGE[0], LAT_RANGE[1], inclusive='both')) &
+    (bus_data['direction_ref'] == 'inbound')  # New filter for inbound direction
+]
+ 
 # Group by journey_ref and vehicle and calculate distance and time within each group
 grouped_data = bus_data.groupby(journey_ref_col)
 bus_data = grouped_data.apply(calculate_distance_and_time)
