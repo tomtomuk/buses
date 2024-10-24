@@ -3,6 +3,8 @@ from datetime import datetime
 from geopy.distance import great_circle
 import json
 
+DATE = '2024-10-23'
+
 # Westbound stops
 HEAVITREE_BRIDGE_IN = {"latitude": 50.719708, "longitude": -3.493304}
 ST_LOYES_RD_IN = {"latitude": 50.720561, "longitude": -3.496193}
@@ -12,7 +14,7 @@ POST_OFFICE_IN = {"latitude": 50.721455, "longitude": -3.506379}
 # Fore street = -3.508142 to -3.501045 ~(City Vets to Butts Road)
 # Bus lane = -3.504520 to -3.501827
 
-BUSFILE = 'csv_data/buses_2024-10-22.csv'
+BUSFILE = f'csv_data/buses_{DATE}.csv'
 
 
 # Extract latitude and longitude from JSON string
@@ -24,21 +26,49 @@ def get_lat_lon(location_json):
 
 
 def calculate_distance_and_time(group):
+    group = group.sort_values(timestamp_col)  # Ensure the group is sorted by timestamp
     previous_row = None
+    total_distance = 0
+    total_time = pd.Timedelta(0)
+    
     for index, row in group.iterrows():
         if previous_row is not None:
-            group.loc[index, "distance"] = great_circle(
+            # Calculate time difference
+            time_diff = row[timestamp_col] - previous_row[timestamp_col]
+            group.loc[index, "time_diff"] = time_diff
+            total_time += time_diff
+
+            # Calculate distance
+            distance = great_circle(
                 (row["latitude"], row["longitude"]),
                 (previous_row["latitude"], previous_row["longitude"])
             ).kilometers
+            group.loc[index, "distance"] = distance
+            total_distance += distance
+
+            # Calculate speed for each row
+            if time_diff.total_seconds() > 0:
+                group.loc[index, "speed"] = distance / time_diff.total_seconds() * 3600  # Convert to km/h
+            else:
+                group.loc[index, "speed"] = 0
+        else:
+            # For the first row, set distance, time_diff, and speed to None
+            group.loc[index, "distance"] = None
+            group.loc[index, "time_diff"] = None
+            group.loc[index, "speed"] = None
 
         # Check if the current location is near a westbound stop
         group.loc[index, "near_westbound_stop"] = is_near_westbound_stop(row["latitude"], row["longitude"])
         previous_row = row
 
-    group["time_diff"] = pd.to_timedelta(group[timestamp_col].diff())
+    # Calculate average speed for the group
+    if total_time.total_seconds() > 0:
+        group["avg_speed"] = total_distance / total_time.total_seconds() * 3600  # Convert to km/h
+    else:
+        group["avg_speed"] = 0
 
     return group
+
 
 
 def is_near_westbound_stop(lat, lon, max_distance=0.01):  # 0.01 km = 10 meters
@@ -64,16 +94,13 @@ bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 
 # Group by journey_ref and vehicle and calculate distance and time within each group
 grouped_data = bus_data.groupby(journey_ref_col)
-
 bus_data = grouped_data.apply(calculate_distance_and_time)
 
-# Calculate speed
-bus_data["speed"] = bus_data["distance"] / bus_data["time_diff"].dt.total_seconds() * 3600  # Convert to km/h
-
-# The "speed" column now contains the individual speeds at each timestep
 # save the interesting data:
 tosave = bus_data[[
-    "direction_ref", "line_ref", "dated_vehicle_journey_ref", "latitude", "longitude", "recorded_at_time", "speed", "near_westbound_stop"
+    "direction_ref", "line_ref", "dated_vehicle_journey_ref", 
+    "latitude", "longitude", "recorded_at_time", "speed", "near_westbound_stop",
+    "avg_speed"
 ]]
 
-tosave.to_csv('speeds.csv', index=False)
+tosave.to_csv(f'speeds_{DATE}.csv', index=False)
