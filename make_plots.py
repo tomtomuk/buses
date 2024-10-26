@@ -46,20 +46,12 @@ df['recorded_at_time'] = df['recorded_at_time'].apply(lambda x: today + pd.Timed
 grouped = df.groupby(['line_ref', 'dated_vehicle_journey_ref', 'source_date']).first().reset_index()
 print(f"Grouped data: {len(grouped)} rows")
 
-# Diagnostic: Print rows with average speed of zero
-zero_speed_rows = df[df['avg_speed'] == 0]
-if not zero_speed_rows.empty:
-    print("\nRows with average speed of zero:")
-    print(zero_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'avg_speed', 'longitude', 'latitude']])
-    print(f"Total rows with zero speed: {len(zero_speed_rows)}")
-else:
-    print("\nNo rows found with average speed of zero.")
 
-# Additional check for very low speeds
-low_speed_rows = df[df['avg_speed'] < 1]  # Adjust the threshold as needed
+# check for very low speeds
+low_speed_rows = df[df['bus_lane_implied_speed'] < 1]  # Adjust the threshold as needed
 if not low_speed_rows.empty:
     print("\nRows with very low average speed (< 1 km/h):")
-    print(low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'avg_speed', 'longitude', 'latitude']])
+    print(low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'longitude', 'latitude']])
     print(f"Total rows with very low speed: {len(low_speed_rows)}")
 else:
     print("\nNo rows found with very low average speed.")
@@ -67,7 +59,7 @@ else:
 
 def calculate_average_speed_and_slow_count(data, start_time, end_time, slow_threshold=8):
     mask = (data['recorded_at_time'].dt.time >= start_time) & (data['recorded_at_time'].dt.time < end_time)
-    subset = data.loc[mask, 'avg_speed']
+    subset = data.loc[mask, 'bus_lane_implied_speed']
     avg_speed = subset.mean()
     slow_count = (subset < slow_threshold).sum()
     total_count = len(subset)
@@ -118,24 +110,11 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
 create_scatter_plot(
     data=grouped,
     x='recorded_at_time',
-    y='avg_speed',
+    y='bus_lane_implied_speed',
     hue='line_ref',
     style='source_date',
     title='Average Speed by Line and Journey (Time of Day) - Inbound',
     filename='average_speed_scatter_plot.png'
-)
-
-df_with_speed = df[df['speed'].notna()]
-print(f"Data points with speed: {len(df_with_speed)}")
-
-create_scatter_plot(
-    data=df_with_speed,
-    x='recorded_at_time',
-    y='speed',
-    hue='line_ref',
-    style='source_date',
-    title='All Individual Speeds by Line and Journey (Time of Day) - Inbound',
-    filename='all_speeds_scatter_plot.png'
 )
 
 print("Script completed. Check the console output for data statistics.")
