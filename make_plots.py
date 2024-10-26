@@ -7,7 +7,8 @@ import pytz
 import glob
 import re
 
-LOCAL_TIMEZONE = 'Europe/London'  # Replace with your local timezone
+LOCAL_TIMEZONE = 'Europe/London'  
+SLOW_THRESHOLD = 8
 
 csv_files = glob.glob('csv_data/speeds/speeds_*.csv')
 
@@ -46,18 +47,19 @@ df['recorded_at_time'] = df['recorded_at_time'].apply(lambda x: today + pd.Timed
 grouped = df.groupby(['line_ref', 'dated_vehicle_journey_ref', 'source_date']).first().reset_index()
 print(f"Grouped data: {len(grouped)} rows")
 
-
-# check for very low speeds
-low_speed_rows = df[df['bus_lane_implied_speed'] < 1]  # Adjust the threshold as needed
+# report slow speeds
+low_speed_rows = df[df['bus_lane_implied_speed'] < SLOW_THRESHOLD]  # Adjust the threshold as needed
 if not low_speed_rows.empty:
-    print("\nRows with very low average speed (< 1 km/h):")
-    print(low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'longitude', 'latitude']])
-    print(f"Total rows with very low speed: {len(low_speed_rows)}")
+    print(f"\nRows with slow average speed: (< {SLOW_THRESHOLD} km/h)")
+    low_speed_data = low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'longitude', 'latitude']]
+    print(low_speed_data)
+    print(f"Total rows with slow speed: {len(low_speed_rows)}")
+    low_speed_data.to_csv('csv_data/slow_speeds.csv', index=False)
 else:
-    print("\nNo rows found with very low average speed.")
+    print("\nNo rows found with slow speed.")
 
 
-def calculate_average_speed_and_slow_count(data, start_time, end_time, slow_threshold=8):
+def calculate_average_speed_and_slow_count(data, start_time, end_time, slow_threshold=SLOW_THRESHOLD):
     mask = (data['recorded_at_time'].dt.time >= start_time) & (data['recorded_at_time'].dt.time < end_time)
     subset = data.loc[mask, 'bus_lane_implied_speed']
     avg_speed = subset.mean()
@@ -101,6 +103,9 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
     midday_x = today + pd.Timedelta(hours=12, minutes=45)  # 12:45, middle of 09:30-16:00
     ax.text(midday_x, ax.get_ylim()[1], f'Avg: {midday_stats[0]:.2f} km/h\nSlow: {midday_stats[1]:.2f}%', ha='center', va='top')
     
+    # line for slow threshold
+    ax.axhline(y=SLOW_THRESHOLD, linestyle='--', color='red', alpha=0.5)
+
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig(filename)

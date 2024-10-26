@@ -2,8 +2,9 @@ import pandas as pd
 from datetime import datetime
 from geopy.distance import great_circle
 import json
+import sys
 
-DATE = '2024-10-24'
+DATE = sys.argv[1]
 
 BUS_LANE = [
     {"latitude": 50.721252, "longitude": -3.504539},
@@ -96,51 +97,6 @@ def calculate_distance_and_time(group):
     return group
 
 
-# def calculate_distance_and_time(group):
-#     group = group.sort_values(timestamp_col)  # Ensure the group is sorted by timestamp
-#     previous_row = None
-#     total_distance = 0
-#     total_time = pd.Timedelta(0)
-    
-#     for index, row in group.iterrows():
-#         if previous_row is not None:
-#             # Calculate time difference
-#             time_diff = row[timestamp_col] - previous_row[timestamp_col]
-#             group.loc[index, "time_diff"] = time_diff
-#             total_time += time_diff
-
-#             # Calculate distance
-#             distance = great_circle(
-#                 (row["latitude"], row["longitude"]),
-#                 (previous_row["latitude"], previous_row["longitude"])
-#             ).kilometers
-#             group.loc[index, "distance"] = distance
-#             total_distance += distance
-
-#             # Calculate speed for each row
-#             if time_diff.total_seconds() > 0:
-#                 group.loc[index, "speed"] = distance / time_diff.total_seconds() * 3600  # Convert to km/h
-#             else:
-#                 group.loc[index, "speed"] = None
-#         else:
-#             # For the first row, set distance, time_diff, and speed to None
-#             group.loc[index, "distance"] = None
-#             group.loc[index, "time_diff"] = None
-#             group.loc[index, "speed"] = None
-
-#         # Check if the current location is near a westbound stop
-#         group.loc[index, "near_westbound_stop"] = is_near_westbound_stop(row["latitude"], row["longitude"])
-#         previous_row = row
-
-#     # Calculate average speed for the group
-#     if total_time.total_seconds() > 0:
-#         group["avg_speed"] = total_distance / total_time.total_seconds() * 3600  # Convert to km/h
-#     else:
-#         group["avg_speed"] = None
-
-#     return group
-
-
 def is_near_westbound_stop(lat, lon, max_distance=0.01):  # 0.01 km = 10 meters
     westbound_stops = [HEAVITREE_BRIDGE_IN, ST_LOYES_RD_IN, BUTTS_ROAD_IN, POST_OFFICE_IN]
     for stop in westbound_stops:
@@ -164,6 +120,9 @@ bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 
 # filter to inbound only
 bus_data = bus_data[bus_data['direction_ref'] == 'inbound']
+# filter to stagecoach only
+bus_data = bus_data[bus_data['operator_ref'] == 'SDVN']
+
 # Group by journey_ref and vehicle and calculate distance and time within each group
 grouped_data = bus_data.groupby(journey_ref_col)
 bus_data = grouped_data.apply(calculate_distance_and_time)
