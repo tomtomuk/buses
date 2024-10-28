@@ -51,7 +51,7 @@ print(f"Grouped data: {len(grouped)} rows")
 low_speed_rows = df[df['bus_lane_implied_speed'] < SLOW_THRESHOLD]  # Adjust the threshold as needed
 if not low_speed_rows.empty:
     print(f"\nRows with slow average speed: (< {SLOW_THRESHOLD} km/h)")
-    low_speed_data = low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'longitude', 'latitude']]
+    low_speed_data = low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'latitude', 'longitude']]
     print(low_speed_data)
     print(f"Total rows with slow speed: {len(low_speed_rows)}")
     low_speed_data.to_csv('csv_data/slow_speeds.csv', index=False)
