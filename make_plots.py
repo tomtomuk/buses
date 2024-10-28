@@ -59,7 +59,7 @@ else:
     print("\nNo rows found with slow speed.")
 
 
-def calculate_average_speed_and_slow_count(data, start_time, end_time, slow_threshold=SLOW_THRESHOLD):
+def calculate_stats_and_slow_count(data, start_time, end_time, slow_threshold=SLOW_THRESHOLD):
     mask = (data['recorded_at_time'].dt.time >= start_time) & (data['recorded_at_time'].dt.time < end_time)
     subset = data.loc[mask, 'bus_lane_implied_speed']
     avg_speed = subset.mean()
@@ -79,14 +79,15 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
     plt.title(title)
     plt.xlabel('Time of Day')
     plt.ylabel('Speed (km/h)')
+    plt.ylim(bottom=0)
     
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
     ax.xaxis.set_major_locator(mdates.HourLocator())
     
     # Calculate average speeds and slow counts for each time range
-    morning_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('08:00', '%H:%M').time(), datetime.strptime('09:30', '%H:%M').time())
-    midday_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('09:30', '%H:%M').time(), datetime.strptime('16:00', '%H:%M').time())
-    evening_stats = calculate_average_speed_and_slow_count(data, datetime.strptime('16:00', '%H:%M').time(), datetime.strptime('18:30', '%H:%M').time())
+    morning_stats = calculate_stats_and_slow_count(data, datetime.strptime('08:00', '%H:%M').time(), datetime.strptime('09:30', '%H:%M').time())
+    midday_stats = calculate_stats_and_slow_count(data, datetime.strptime('09:30', '%H:%M').time(), datetime.strptime('16:00', '%H:%M').time())
+    evening_stats = calculate_stats_and_slow_count(data, datetime.strptime('16:00', '%H:%M').time(), datetime.strptime('18:30', '%H:%M').time())
     
     # Add vertical lines and text for each time range
     for time_str, stats, ha in [('08:00', morning_stats, 'right'), 
