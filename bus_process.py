@@ -3,6 +3,7 @@ from datetime import datetime
 from geopy.distance import great_circle
 import json
 import sys
+import os
 
 DATE = sys.argv[1]
 
@@ -57,12 +58,21 @@ def calculate_distance_and_time(group):
     
     relevant_points = pd.concat([before_lane, in_lane, after_lane]).sort_values(timestamp_col)
     
+    # Initialize new columns with default values
+    group['in_bus_lane'] = False
+    group['bus_lane_avg_speed'] = 0
+    group['bus_lane_implied_speed'] = 0
+    group['wrong_direction'] = False
+
     if len(relevant_points) < 2:
         return group
     
     first_point = relevant_points.iloc[0]
     last_point = relevant_points.iloc[-1]
     
+    # Check direction
+    correct_direction = last_point['longitude'] < first_point['longitude']
+
     # Calculate total distance and time
     total_distance = great_circle(
         (first_point['latitude'], first_point['longitude']),
@@ -93,7 +103,8 @@ def calculate_distance_and_time(group):
     group['in_bus_lane'] = group.index.isin(in_lane.index)
     group['bus_lane_avg_speed'] = avg_speed
     group['bus_lane_implied_speed'] = implied_speed
-    
+    group['wrong_direction'] == correct_direction
+
     return group
 
 
@@ -111,7 +122,10 @@ bus_data = pd.read_csv(BUSFILE)
 # Define relevant columns
 timestamp_col = "recorded_at_time"
 location_col = "vehicle_location"
-journey_ref_col = ["dated_vehicle_journey_ref", "vehicle_ref", "direction_ref"]
+# these columns should be enough to isolate individual journeys
+journey_ref_col = [
+    "dated_vehicle_journey_ref", "origin_aimed_departure_time", "vehicle_ref", "direction_ref"
+    ]
 
 bus_data[timestamp_col] = bus_data[timestamp_col].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S%z'))
 
@@ -129,6 +143,8 @@ bus_data = grouped_data.apply(calculate_distance_and_time)
 
 # filter to buses only in fore street bus lane
 bus_data = bus_data[bus_data['in_bus_lane'] == True]
+# and only correct direction
+bus_data[bus_data['wrong_direction'] == False]
 
 # save the interesting data:
 tosave = bus_data[[
@@ -137,4 +153,21 @@ tosave = bus_data[[
     "bus_lane_implied_speed"
 ]]
 
-tosave.to_csv(f'speeds_{DATE}.csv', index=False)
+tosave.to_csv(f'csv_data\speeds\speeds_{DATE}.csv', index=False)
+
+# Filter and report buses traveling in the wrong direction
+wrong_direction_buses = bus_data[bus_data['wrong_direction'] == True]
+if not wrong_direction_buses.empty:
+    print(f"\nFound {len(wrong_direction_buses)} buses traveling in the wrong direction:")
+    columns_to_display = ['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'longitude', 'latitude']
+    
+    # Optionally, save to a CSV file
+    output_dir = 'wrong_direction_reports'
+    os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f'wrong_direction_{timestamp}.csv'
+    filepath = os.path.join(output_dir, filename)
+    wrong_direction_buses[columns_to_display].to_csv(filepath, index=False)
+    print(f"Wrong direction data has been written to {filepath}")
+else:
+    print("\nNo buses found traveling in the wrong direction.")
