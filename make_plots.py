@@ -6,11 +6,14 @@ import matplotlib.dates as mdates
 import pytz
 import glob
 import re
+import sys
 
 LOCAL_TIMEZONE = 'Europe/London'  
-SLOW_THRESHOLD = 8
+SLOW_THRESHOLD = 11
 
-csv_files = glob.glob('csv_data/speeds/speeds_*.csv')
+LOCATION = sys.argv[1]
+
+csv_files = glob.glob(f'csv_data/speeds/{LOCATION}/speeds_*.csv')
 
 print(f"Found {len(csv_files)} CSV files")
 
@@ -48,10 +51,10 @@ grouped = df.groupby(['line_ref', 'dated_vehicle_journey_ref', 'source_date']).f
 print(f"Grouped data: {len(grouped)} rows")
 
 # report slow speeds
-low_speed_rows = df[df['bus_lane_implied_speed'] < SLOW_THRESHOLD]  # Adjust the threshold as needed
+low_speed_rows = df[df['implied_speed'] < SLOW_THRESHOLD]  # Adjust the threshold as needed
 if not low_speed_rows.empty:
     print(f"\nRows with slow average speed: (< {SLOW_THRESHOLD} km/h)")
-    low_speed_data = low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'bus_lane_implied_speed', 'latitude', 'longitude']]
+    low_speed_data = low_speed_rows[['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'implied_speed', 'latitude', 'longitude']]
     print(low_speed_data)
     print(f"Total rows with slow speed: {len(low_speed_rows)}")
     low_speed_data.to_csv('csv_data/slow_speeds.csv', index=False)
@@ -61,12 +64,12 @@ else:
 
 def calculate_stats_and_slow_count(data, start_time, end_time, slow_threshold=SLOW_THRESHOLD):
     mask = (data['recorded_at_time'].dt.time >= start_time) & (data['recorded_at_time'].dt.time < end_time)
-    subset = data.loc[mask, 'bus_lane_implied_speed']
+    subset = data.loc[mask, 'implied_speed']
     avg_speed = subset.mean()
     slow_count = (subset < slow_threshold).sum()
     total_count = len(subset)
     slow_pct = (slow_count / total_count * 100) if total_count > 0 else 0
-    return avg_speed, slow_pct
+    return avg_speed, slow_pct, total_count
 
 def create_scatter_plot(data, x, y, hue, style, title, filename):
     if len(data) == 0:
@@ -98,11 +101,17 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
         x_pos = today + pd.Timedelta(hours=time_obj.hour, minutes=time_obj.minute)
         ax.axvline(x=x_pos, linestyle='--', color='gray', alpha=0.5)
         if ha == 'left':
-            ax.text(x_pos, ax.get_ylim()[1], f' Avg: {stats[0]:.2f} km/h\n Slow: {stats[1]:.2f}%', ha=ha, va='top', rotation=90)
+            ax.text(
+                x_pos, ax.get_ylim()[1], f' Avg: {stats[0]:.2f} km/h\nSlow: {stats[1]:.2f}%',
+                ha=ha, va='top', rotation=90
+                )
     
     # Add text for midday average
     midday_x = today + pd.Timedelta(hours=12, minutes=45)  # 12:45, middle of 09:30-16:00
-    ax.text(midday_x, ax.get_ylim()[1], f'Avg: {midday_stats[0]:.2f} km/h\nSlow: {midday_stats[1]:.2f}%', ha='center', va='top')
+    ax.text(
+        midday_x, ax.get_ylim()[1], f'Avg: {midday_stats[0]:.2f} km/h\nSlow: {midday_stats[1]:.2f}%',
+        ha='center', va='top'
+        )
     
     # line for slow threshold
     ax.axhline(y=SLOW_THRESHOLD, linestyle='--', color='red', alpha=0.5)
@@ -116,11 +125,11 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
 create_scatter_plot(
     data=grouped,
     x='recorded_at_time',
-    y='bus_lane_implied_speed',
+    y='implied_speed',
     hue='line_ref',
     style='source_date',
-    title='Average Speed by Line and Journey (Time of Day) - Inbound',
-    filename='average_speed_scatter_plot.png'
+    title=f'Average Speed - Inbound - {LOCATION}',
+    filename=f'average_speed_{LOCATION}.png'
 )
 
 print("Script completed. Check the console output for data statistics.")

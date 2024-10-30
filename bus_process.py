@@ -5,16 +5,42 @@ import json
 import sys
 import os
 
-DATE = sys.argv[1]
 
-BUS_LANE = [
-    {"latitude": 50.721252, "longitude": -3.504539},
-    {"latitude": 50.721186, "longitude": -3.501835}
+ROAD_SECTIONS = {
+    'bus_lane': [
+        {"latitude": 50.721252, "longitude": -3.504539},
+        {"latitude": 50.721186, "longitude": -3.501835}
+    ],
+    'ewh': [
+        {"latitude": 50.721173, "longitude": -3.501134},
+        {"latitude": 50.719663, "longitude": -3.492795}
+    ],
+    'butts_to_po': [
+        {"latitude": 50.721476, "longitude": -3.506459},
+        {"latitude": 50.721156, "longitude": -3.500906}
     ]
+}
+
+# Get command line arguments
+if len(sys.argv) != 3:
+    print("Usage: python bus_process.py <date> <road_section>")
+    print("Available road sections:", ", ".join(ROAD_SECTIONS.keys()))
+    sys.exit(1)
+
+DATE = sys.argv[1]
+SECTION_NAME = sys.argv[2]
+
+if SECTION_NAME not in ROAD_SECTIONS:
+    print(f"Invalid road section. Choose from: {', '.join(ROAD_SECTIONS.keys())}")
+    sys.exit(1)
+
+# Get the selected road section data
+ROAD_SECTION = ROAD_SECTIONS[SECTION_NAME]
+
 
 def calc_lat_range(bus_lane):
     # Extract latitudes from the BUS_LANE list
-    latitudes = [point["latitude"] for point in BUS_LANE]
+    latitudes = [point["latitude"] for point in ROAD_SECTION]
 
     # Find the minimum and maximum latitudes
     min_latitude = min(latitudes)
@@ -26,13 +52,7 @@ def calc_lat_range(bus_lane):
 
     return lower_bound, upper_bound
 
-LAT_RANGE = calc_lat_range(BUS_LANE)
-
-# Westbound stops
-HEAVITREE_BRIDGE_IN = {"latitude": 50.719708, "longitude": -3.493304}
-ST_LOYES_RD_IN = {"latitude": 50.720561, "longitude": -3.496193}
-BUTTS_ROAD_IN = {"latitude": 50.721171, "longitude": -3.501255}
-POST_OFFICE_IN = {"latitude": 50.721455, "longitude": -3.506379}
+LAT_RANGE = calc_lat_range(ROAD_SECTION)
 
 BUSFILE = f'csv_data/bus_data/buses_{DATE}.csv'
 
@@ -48,21 +68,21 @@ def get_lat_lon(location_json):
 def calculate_distance_and_time(group):
     group = group.sort_values(timestamp_col)
     
-    # Find the points just before, within, and just after the BUS_LANE range
-    after_lane = group[group['longitude'] < BUS_LANE[0]['longitude']].iloc[:1] if not group[group['longitude'] < BUS_LANE[0]['longitude']].empty else pd.DataFrame()
-    in_lane = group[
-        (group['longitude'].between(BUS_LANE[0]['longitude'], BUS_LANE[1]['longitude'], inclusive='both')) &
+    # Find the points just before, within, and just after the ROAD_SECTION range
+    # this assumes traffic travelling westbound
+    after_section = group[group['longitude'] < ROAD_SECTION[0]['longitude']].iloc[:1] if not group[group['longitude'] < ROAD_SECTION[0]['longitude']].empty else pd.DataFrame()
+    in_section = group[
+        (group['longitude'].between(ROAD_SECTION[0]['longitude'], ROAD_SECTION[1]['longitude'], inclusive='both')) &
         (group['latitude'].between(LAT_RANGE[0], LAT_RANGE[1], inclusive='both'))
     ]
-    before_lane = group[group['longitude'] > BUS_LANE[1]['longitude']].iloc[-1:] if not group[group['longitude'] > BUS_LANE[1]['longitude']].empty else pd.DataFrame()
+    before_section = group[group['longitude'] > ROAD_SECTION[1]['longitude']].iloc[-1:] if not group[group['longitude'] > ROAD_SECTION[1]['longitude']].empty else pd.DataFrame()
     
-    relevant_points = pd.concat([before_lane, in_lane, after_lane]).sort_values(timestamp_col)
+    relevant_points = pd.concat([before_section, in_section, after_section]).sort_values(timestamp_col)
     
     # Initialize new columns with default values
-    group['in_bus_lane'] = False
-    group['bus_lane_avg_speed'] = 0
-    group['bus_lane_implied_speed'] = 0
-    group['wrong_direction'] = False
+    group['in_section'] = False
+    group['avg_speed'] = 0
+    group['implied_speed'] = 0
 
     if len(relevant_points) < 2:
         return group
@@ -70,9 +90,6 @@ def calculate_distance_and_time(group):
     first_point = relevant_points.iloc[0]
     last_point = relevant_points.iloc[-1]
     
-    # Check direction
-    correct_direction = last_point['longitude'] < first_point['longitude']
-
     # Calculate total distance and time
     total_distance = great_circle(
         (first_point['latitude'], first_point['longitude']),
@@ -84,36 +101,27 @@ def calculate_distance_and_time(group):
     # Calculate average speed
     avg_speed = total_distance / total_time if total_time > 0 else 0
     
-    # Calculate implied speed between BUS_LANE points
-    bus_lane_distance = great_circle(
-        (BUS_LANE[0]['latitude'], BUS_LANE[0]['longitude']),
-        (BUS_LANE[1]['latitude'], BUS_LANE[1]['longitude'])
+    # Calculate implied speed in section
+    section_distance = great_circle(
+        (ROAD_SECTION[0]['latitude'], ROAD_SECTION[0]['longitude']),
+        (ROAD_SECTION[1]['latitude'], ROAD_SECTION[1]['longitude'])
     ).kilometers
     
-    # Calculate the fraction of total distance that the bus lane represents
+    # Calculate the fraction of total distance that the section represents
     if total_distance > 0:
-        time_fraction = bus_lane_distance / total_distance
+        time_fraction = section_distance / total_distance
         implied_time = total_time * time_fraction
     else:
         implied_time = 0
     
-    implied_speed = bus_lane_distance / implied_time if implied_time > 0 else 0
+    implied_speed = section_distance / implied_time if implied_time > 0 else 0
     
     # Add new columns to the group
-    group['in_bus_lane'] = group.index.isin(in_lane.index)
-    group['bus_lane_avg_speed'] = avg_speed
-    group['bus_lane_implied_speed'] = implied_speed
-    group['wrong_direction'] == correct_direction
-
+    group['in_section'] = group.index.isin(in_section.index)
+    group['avg_speed'] = avg_speed
+    group['implied_speed'] = implied_speed
+    
     return group
-
-
-def is_near_westbound_stop(lat, lon, max_distance=0.01):  # 0.01 km = 10 meters
-    westbound_stops = [HEAVITREE_BRIDGE_IN, ST_LOYES_RD_IN, BUTTS_ROAD_IN, POST_OFFICE_IN]
-    for stop in westbound_stops:
-        if great_circle((lat, lon), (stop['latitude'], stop['longitude'])).kilometers <= max_distance:
-            return True
-    return False
 
 
 # Load the CSV data
@@ -128,7 +136,6 @@ journey_ref_col = [
     ]
 
 bus_data[timestamp_col] = bus_data[timestamp_col].apply(lambda x: datetime.strptime(x, '%Y-%m-%d %H:%M:%S%z'))
-
 locations_list = bus_data[location_col].apply(get_lat_lon).tolist()
 bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 
@@ -136,38 +143,32 @@ bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 bus_data = bus_data[bus_data['direction_ref'] == 'inbound']
 # filter to stagecoach only
 bus_data = bus_data[bus_data['operator_ref'] == 'SDVN']
+# remove R bus (as R inbound goes wrong way and also not down Fore Street)
+bus_data = bus_data[bus_data['line_ref'] != 'R']
 
 # Group by journey_ref and vehicle and calculate distance and time within each group
 grouped_data = bus_data.groupby(journey_ref_col)
 bus_data = grouped_data.apply(calculate_distance_and_time)
 
-# filter to buses only in fore street bus lane
-bus_data = bus_data[bus_data['in_bus_lane'] == True]
-# and only correct direction
-bus_data[bus_data['wrong_direction'] == False]
+# filter to buses only section
+bus_data = bus_data[bus_data['in_section'] == True]
 
 # save the interesting data:
 tosave = bus_data[[
     "direction_ref", "line_ref", "dated_vehicle_journey_ref", 
     "latitude", "longitude", "recorded_at_time",
-    "bus_lane_implied_speed"
+    "implied_speed"
 ]]
 
-tosave.to_csv(f'csv_data\speeds\speeds_{DATE}.csv', index=False)
+# Update file paths
+BUSFILE = f'csv_data/bus_data/buses_{DATE}.csv'
+SPEEDS_DIR = f'csv_data/speeds/{SECTION_NAME}/archive'
 
-# Filter and report buses traveling in the wrong direction
-wrong_direction_buses = bus_data[bus_data['wrong_direction'] == True]
-if not wrong_direction_buses.empty:
-    print(f"\nFound {len(wrong_direction_buses)} buses traveling in the wrong direction:")
-    columns_to_display = ['line_ref', 'dated_vehicle_journey_ref', 'source_date', 'recorded_at_time', 'longitude', 'latitude']
-    
-    # Optionally, save to a CSV file
-    output_dir = 'wrong_direction_reports'
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f'wrong_direction_{timestamp}.csv'
-    filepath = os.path.join(output_dir, filename)
-    wrong_direction_buses[columns_to_display].to_csv(filepath, index=False)
-    print(f"Wrong direction data has been written to {filepath}")
-else:
-    print("\nNo buses found traveling in the wrong direction.")
+# Create directories if they don't exist
+os.makedirs(SPEEDS_DIR, exist_ok=True)
+
+# Update output file paths
+speeds_output = os.path.join(SPEEDS_DIR, f'speeds_{DATE}.csv')
+
+# save
+tosave.to_csv(speeds_output, index=False)
