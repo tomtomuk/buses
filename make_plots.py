@@ -7,6 +7,8 @@ import pytz
 import glob
 import re
 import sys
+from scipy import stats
+import numpy as np
 
 LOCAL_TIMEZONE = 'Europe/London'  
 SLOW_THRESHOLD = 11
@@ -121,7 +123,160 @@ def create_scatter_plot(data, x, y, hue, style, title, filename):
     plt.savefig(filename)
     plt.close()
 
+
+def create_histogram(data, start_time, end_time, title, filename):
+    if len(data) == 0:
+        print(f"No data to plot for {filename}")
+        return
     
+    # Filter data for the time period
+    mask = (data['recorded_at_time'].dt.time >= datetime.strptime(start_time, '%H:%M').time()) & \
+           (data['recorded_at_time'].dt.time < datetime.strptime(end_time, '%H:%M').time())
+    period_data = data.loc[mask]
+    
+    if len(period_data) == 0:
+        print(f"No data for period {start_time} to {end_time}")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Create histogram with 5km/h wide bins from 0 to max speed (rounded up to nearest bin)
+    max_speed = int(period_data['implied_speed'].max() + 1)
+    bins = range(0, max_speed + 1, 1)
+    
+    plt.hist(period_data['implied_speed'], bins=bins, edgecolor='black')
+    
+    plt.title(f'{title}\n({start_time} - {end_time})')
+    plt.xlabel('Speed (km/h)')
+    plt.ylabel('Number of Vehicles')
+    
+    # Add vertical line for slow threshold
+    plt.axvline(x=SLOW_THRESHOLD, color='red', linestyle='--', label=f'Slow threshold ({SLOW_THRESHOLD} km/h)')
+    plt.legend()
+    
+    # Add text with statistics
+    slow_pct = (period_data['implied_speed'] < SLOW_THRESHOLD).mean() * 100
+    mean_speed = period_data['implied_speed'].mean()
+    median_speed = period_data['implied_speed'].median()
+
+    stats_text = f'Mean: {mean_speed:.1f} km/h\nMedian: {median_speed:.1f} km/h\nSlow %: {slow_pct:.1f}%'
+    plt.text(0.95, 0.95, stats_text,
+             transform=ax.transAxes,
+             verticalalignment='top',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+
+def create_dual_histogram(data, title, filename):
+    if len(data) == 0:
+        print(f"No data to plot for {filename}")
+        return
+    
+    # Filter data for both time periods
+    morning_mask = (data['recorded_at_time'].dt.time >= datetime.strptime('08:00', '%H:%M').time()) & \
+                  (data['recorded_at_time'].dt.time < datetime.strptime('09:30', '%H:%M').time())
+    midday_mask = (data['recorded_at_time'].dt.time >= datetime.strptime('09:30', '%H:%M').time()) & \
+                  (data['recorded_at_time'].dt.time < datetime.strptime('16:00', '%H:%M').time())
+    
+    morning_data = data.loc[morning_mask, 'implied_speed']
+    midday_data = data.loc[midday_mask, 'implied_speed']
+    
+    if len(morning_data) == 0 or len(midday_data) == 0:
+        print("No data for one or both time periods")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Create histogram with 1km/h bins from 0 to max speed
+    max_speed = int(max(morning_data.max(), midday_data.max()) + 1)
+    bins = range(0, max_speed + 1, 1)
+    
+    # Plot histograms with density=True to make area=1 for distribution fitting
+    plt.hist(morning_data, bins=bins, alpha=0.6, density=True, 
+            label='Morning Peak (08:00-09:30)',
+            edgecolor='black', color='skyblue')
+    plt.hist(midday_data, bins=bins, alpha=0.6, density=True,
+            label='Midday (09:30-16:00)',
+            edgecolor='black', color='orange')
+    
+    # Kernel Density Estimation
+    x_range = np.linspace(0, max_speed, 100)
+    morning_kde = stats.gaussian_kde(morning_data)
+    midday_kde = stats.gaussian_kde(midday_data)
+    
+    plt.plot(x_range, morning_kde(x_range), 'b--', linewidth=2,
+            label='Morning KDE')
+    plt.plot(x_range, midday_kde(x_range), 'r--', linewidth=2,
+            label='Midday KDE')
+    
+    plt.title(title)
+    plt.xlabel('Speed (km/h)')
+    plt.ylabel('Density')
+    
+    # Add vertical line for slow threshold
+    plt.axvline(x=SLOW_THRESHOLD, color='red', linestyle=':', 
+                label=f'Slow threshold ({SLOW_THRESHOLD} km/h)')
+    
+    # Add statistics for both periods
+    morning_stats = f'Morning Peak:\n' \
+                   f'Mean: {morning_data.mean():.1f} km/h\n' \
+                   f'Median: {morning_data.median():.1f} km/h\n' \
+                   f'Std Dev: {morning_data.std():.1f} km/h\n' \
+                   f'Slow %: {(morning_data < SLOW_THRESHOLD).mean()*100:.1f}%'
+    
+    midday_stats = f'Midday:\n' \
+                   f'Mean: {midday_data.mean():.1f} km/h\n' \
+                   f'Median: {midday_data.median():.1f} km/h\n' \
+                   f'Std Dev: {midday_data.std():.1f} km/h\n' \
+                   f'Slow %: {(midday_data < SLOW_THRESHOLD).mean()*100:.1f}%'
+    
+    # Position stats boxes
+    plt.text(0.95, 0.95, morning_stats,
+             transform=ax.transAxes,
+             verticalalignment='top',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='skyblue', alpha=0.1))
+    
+    plt.text(0.95, 0.60, midday_stats,
+             transform=ax.transAxes,
+             verticalalignment='top',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='orange', alpha=0.1))
+    
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper left', bbox_to_anchor=(0.02, 0.98))
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+
+create_dual_histogram(
+    data=grouped,
+    title=f'Speed Distribution - {LOCATION}',
+    filename=f'speed_histogram_{LOCATION}.png'
+)
+
+create_histogram(
+    data=grouped,
+    start_time='08:00',
+    end_time='09:30',
+    title=f'Morning Peak Speed Distribution - {LOCATION}',
+    filename=f'morning_speed_histogram_{LOCATION}.png'
+)
+
+create_histogram(
+    data=grouped,
+    start_time='09:30',
+    end_time='16:00',
+    title=f'Midday Speed Distribution - {LOCATION}',
+    filename=f'midday_speed_histogram_{LOCATION}.png'
+)
+
 create_scatter_plot(
     data=grouped,
     x='recorded_at_time',
