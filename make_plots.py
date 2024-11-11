@@ -152,7 +152,7 @@ def create_histogram(data, start_time, end_time, title, filename):
     
     # Add vertical line for slow threshold
     plt.axvline(x=SLOW_THRESHOLD, color='red', linestyle='--', label=f'Slow threshold ({SLOW_THRESHOLD} km/h)')
-    plt.legend()
+    plt.legend(loc='upper left', bbox_to_anchor=(0.02, 0.98))
     
     # Add text with statistics
     slow_pct = (period_data['implied_speed'] < SLOW_THRESHOLD).mean() * 100
@@ -255,10 +255,92 @@ def create_dual_histogram(data, title, filename):
     plt.close()
 
 
+def create_speed_cdf_plot(data, title, filename):
+    if len(data) == 0:
+        print(f"No data to plot for {filename}")
+        return
+    
+    # Filter data for both time periods
+    morning_mask = (data['recorded_at_time'].dt.time >= datetime.strptime('08:00', '%H:%M').time()) & \
+                  (data['recorded_at_time'].dt.time < datetime.strptime('09:30', '%H:%M').time())
+    midday_mask = (data['recorded_at_time'].dt.time >= datetime.strptime('09:30', '%H:%M').time()) & \
+                  (data['recorded_at_time'].dt.time < datetime.strptime('16:00', '%H:%M').time())
+    
+    morning_data = data.loc[morning_mask, 'implied_speed']
+    midday_data = data.loc[midday_mask, 'implied_speed']
+    
+    if len(morning_data) == 0 or len(midday_data) == 0:
+        print("No data for one or both time periods")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    # Create evaluation points
+    max_speed = int(max(morning_data.max(), midday_data.max()) + 1)
+    x_range = np.linspace(0, max_speed, 200)
+    
+    # Calculate KDE for both periods
+    morning_kde = stats.gaussian_kde(morning_data)
+    midday_kde = stats.gaussian_kde(midday_data)
+    
+    # Calculate CDFs by integrating the KDEs
+    morning_cdf = np.array([morning_kde.integrate_box_1d(0, x) for x in x_range])
+    midday_cdf = np.array([midday_kde.integrate_box_1d(0, x) for x in x_range])
+    
+    # Plot CDFs
+    plt.plot(x_range, morning_cdf, 'b-', linewidth=2,
+            label='Morning Peak (08:00-09:30)')
+    plt.plot(x_range, midday_cdf, 'r-', linewidth=2,
+            label='Midday (09:30-16:00)')
+    
+    plt.title(title)
+    plt.xlabel('Speed (km/h)')
+    plt.ylabel('Cumulative Probability')
+    
+    # Add vertical line for slow threshold
+    plt.axvline(x=SLOW_THRESHOLD, color='red', linestyle=':', 
+                label=f'Slow threshold ({SLOW_THRESHOLD} km/h)')
+    
+    # Add horizontal grid lines at 0.25, 0.5, 0.75
+    for p in [0.25, 0.5, 0.75]:
+        plt.axhline(y=p, color='gray', linestyle='--', alpha=0.3)
+    
+    # Add statistics
+    morning_slow_prob = morning_kde.integrate_box_1d(0, SLOW_THRESHOLD)
+    midday_slow_prob = midday_kde.integrate_box_1d(0, SLOW_THRESHOLD)
+    
+    stats_text = (f'Probability of slow speed:\n'
+                 f'Morning Peak: {morning_slow_prob:.1%}\n'
+                 f'Midday: {midday_slow_prob:.1%}')
+    
+    plt.text(0.98, 0.02, stats_text,
+             transform=ax.transAxes,
+             verticalalignment='bottom',
+             horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper left', bbox_to_anchor=(0.02, 0.98))
+    
+    # Set axis limits
+    plt.xlim(0, max_speed)
+    plt.ylim(0, 1)
+    
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+
+create_speed_cdf_plot(
+    data=grouped,
+    title='Cumulative Speed Distribution',
+    filename='plots/speed_cdf.png'
+)
+
 create_dual_histogram(
     data=grouped,
     title=f'Speed Distribution - {LOCATION}',
-    filename=f'speed_histogram_{LOCATION}.png'
+    filename=f'plots/speed_histogram_{LOCATION}.png'
 )
 
 create_histogram(
@@ -266,7 +348,7 @@ create_histogram(
     start_time='08:00',
     end_time='09:30',
     title=f'Morning Peak Speed Distribution - {LOCATION}',
-    filename=f'morning_speed_histogram_{LOCATION}.png'
+    filename=f'plots/morning_speed_histogram_{LOCATION}.png'
 )
 
 create_histogram(
@@ -274,7 +356,7 @@ create_histogram(
     start_time='09:30',
     end_time='16:00',
     title=f'Midday Speed Distribution - {LOCATION}',
-    filename=f'midday_speed_histogram_{LOCATION}.png'
+    filename=f'plots/midday_speed_histogram_{LOCATION}.png'
 )
 
 create_scatter_plot(
@@ -284,7 +366,7 @@ create_scatter_plot(
     hue='line_ref',
     style='source_date',
     title=f'Average Speed - Inbound - {LOCATION}',
-    filename=f'average_speed_{LOCATION}.png'
+    filename=f'plots/average_speed_{LOCATION}.png'
 )
 
 print("Script completed. Check the console output for data statistics.")
