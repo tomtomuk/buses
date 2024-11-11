@@ -69,7 +69,7 @@ def calculate_distance_and_time(group):
     group = group.sort_values(timestamp_col)
     
     # Find the points just before, within, and just after the ROAD_SECTION range
-    # this assumes traffic travelling westbound
+    # this assumes traffic travelling westbound (i.e decreasing longitude over time)
     after_section = group[group['longitude'] < ROAD_SECTION[0]['longitude']].iloc[:1] if not group[group['longitude'] < ROAD_SECTION[0]['longitude']].empty else pd.DataFrame()
     in_section = group[
         (group['longitude'].between(ROAD_SECTION[0]['longitude'], ROAD_SECTION[1]['longitude'], inclusive='both')) &
@@ -78,6 +78,12 @@ def calculate_distance_and_time(group):
     before_section = group[group['longitude'] > ROAD_SECTION[1]['longitude']].iloc[-1:] if not group[group['longitude'] > ROAD_SECTION[1]['longitude']].empty else pd.DataFrame()
     
     relevant_points = pd.concat([before_section, in_section, after_section]).sort_values(timestamp_col)
+    
+    # check that after sorting by time, the longitude values are decreasing (if not implies an error in the data)
+    if not relevant_points['longitude'].is_monotonic_decreasing:
+        print("Error: Longitude values are not decreasing as expected for this group.")
+        print(relevant_points[['line_ref', 'longitude', timestamp_col]])
+        return group
     
     # Initialize new columns with default values
     group['in_section'] = False
@@ -141,6 +147,8 @@ bus_data["latitude"], bus_data["longitude"] = zip(*locations_list)
 
 # filter to inbound only
 bus_data = bus_data[bus_data['direction_ref'] == 'inbound']
+# also filter to westbound only by selecting bearing between 190 and 350
+bus_data = bus_data[bus_data['bearing'].between(190, 350)]
 # filter to stagecoach only
 bus_data = bus_data[bus_data['operator_ref'] == 'SDVN']
 # remove R bus (as R inbound goes wrong way and also not down Fore Street)
