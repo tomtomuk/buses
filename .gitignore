@@ -1,2 +1,5 @@
 .env
 *.csv
+*.png
+*.zip
+*.xlsx
