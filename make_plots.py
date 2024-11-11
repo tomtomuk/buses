@@ -140,9 +140,9 @@ def create_histogram(data, start_time, end_time, title, filename):
 
     fig, ax = plt.subplots(figsize=(10, 6))
     
-    # Create histogram with 5km/h wide bins from 0 to max speed (rounded up to nearest bin)
-    max_speed = int(period_data['implied_speed'].max() + 1)
-    bins = range(0, max_speed + 1, 1)
+    # Create histogram with 2km/h wide bins starting from an odd number
+    max_speed = int(period_data['implied_speed'].max() + 2)  # Add 2 to ensure we include the max value
+    bins = range(-1, max_speed + 1, 2)
     
     plt.hist(period_data['implied_speed'], bins=bins, edgecolor='black')
     
@@ -192,9 +192,9 @@ def create_dual_histogram(data, title, filename):
 
     fig, ax = plt.subplots(figsize=(12, 7))
     
-    # Create histogram with 1km/h bins from 0 to max speed
-    max_speed = int(max(morning_data.max(), midday_data.max()) + 1)
-    bins = range(0, max_speed + 1, 1)
+    # Create histogram with 2km/h wide bins starting from an odd number
+    max_speed = int(max(morning_data.max(), midday_data.max()) + 2)
+    bins = range(-1, max_speed + 1, 2)
     
     # Plot histograms with density=True to make area=1 for distribution fitting
     plt.hist(morning_data, bins=bins, alpha=0.6, density=True, 
